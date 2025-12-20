@@ -28,34 +28,58 @@
   <p id="status"></p>
 
 <script>
-const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbybdGj77UWVJg-zT1kDbR1HKfAsO1JEvvmQevjkR6b9IMdhyDc2wrt51DUgA3Tjie8GJw/exec
-";
+const WEB_APP_URL = "PASTE_YOUR_WEB_APP_URL_HERE";
 let ACTION = 'IN';
+let scannerRunning = false;
+
+const statusEl = document.getElementById('status');
 
 function setAction(a) {
   ACTION = a;
-  document.getElementById('status').innerText = 'Mode: ' + a;
+  statusEl.innerText = `Mode: ${a} — starting camera...`;
+  startScanner(); // IMPORTANT: start camera only on button tap
 }
 
-Quagga.init({
-  inputStream: {
-    type: "LiveStream",
-    target: document.querySelector('#scanner'),
-    constraints: {
-      facingMode: "environment"
+function startScanner() {
+  if (scannerRunning) return;
+  scannerRunning = true;
+
+  Quagga.init({
+    inputStream: {
+      type: "LiveStream",
+      target: document.querySelector('#scanner'),
+      constraints: {
+        facingMode: { ideal: "environment" } // back camera preferred
+      }
+    },
+    decoder: {
+      readers: ["code_128_reader"]
+    },
+    locate: true
+  }, function(err) {
+    if (err) {
+      scannerRunning = false;
+      statusEl.innerText =
+        "Camera failed to start. Check Safari camera permissions + HTTPS.";
+      console.error(err);
+      return;
     }
-  },
-  decoder: {
-    readers: ["code_128_reader"]
-  }
-}, function(err) {
-  if (err) { console.error(err); return; }
-  Quagga.start();
-});
+    Quagga.start();
+    statusEl.innerText = `Mode: ${ACTION} — camera running. Scan a barcode...`;
+  });
+}
+
+function stopScanner() {
+  try { Quagga.stop(); } catch(e) {}
+  scannerRunning = false;
+}
 
 Quagga.onDetected(function(result) {
-  const sku = result.codeResult.code;
-  Quagga.stop();
+  const sku = result?.codeResult?.code;
+  if (!sku) return;
+
+  stopScanner();
+  statusEl.innerText = `Scanned: ${sku} — saving...`;
   sendScan(sku);
 });
 
@@ -64,22 +88,19 @@ function sendScan(sku) {
 
   fetch(WEB_APP_URL, {
     method: "POST",
-    body: JSON.stringify({
-      sku: sku,
-      action: ACTION,
-      qty: qty
-    })
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sku, action: ACTION, qty })
   })
   .then(r => r.json())
   .then(res => {
     if (res.ok) {
-      document.getElementById('status').innerText =
-        `Recorded: ${ACTION} ${qty} × ${sku}`;
+      statusEl.innerText = `Recorded: ${ACTION} ${qty} × ${sku}. Tap IN/OUT to scan again.`;
     } else {
-      document.getElementById('status').innerText =
-        'Error: ' + res.error;
+      statusEl.innerText = "Error saving scan: " + (res.error || "Unknown");
     }
-    Quagga.start();
+  })
+  .catch(err => {
+    statusEl.innerText = "Network error: " + err;
   });
 }
 </script>
