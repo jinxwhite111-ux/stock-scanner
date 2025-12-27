@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+  <title>Barcode Viewer</title>
+  <script src="https://unpkg.com/bwip-js/dist/bwip-js-min.js"></script>
+  <style>
+    body { margin: 0; font-family: Arial; background: #fff; text-align: center; }
+    .wrap { padding: 12px; }
+    canvas { width: 96vw; max-width: 900px; height: auto; }
+    .sku { margin-top: 10px; font-size: 16px; word-break: break-all; }
+    .hint { font-size: 12px; opacity: 0.7; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <canvas id="c"></canvas>
+    <div class="sku" id="skuText"></div>
+    <div class="hint">Tip: Keep the barcode flat on-screen, avoid glare, hold scanner ~15–30cm away.</div>
+  </div>
+
+<script>
+  function qp(name) {
+    const url = new URL(window.location.href);
+    return url.searchParams.get(name) || '';
+  }
+
+  const sku = qp('sku').trim();
+  document.getElementById('skuText').innerText = sku ? `SKU: ${sku}` : 'Missing SKU';
+
+  if (!sku) throw new Error('Missing sku parameter');
+
+  // High-DPI crisp rendering (prevents blur)
+  const canvas = document.getElementById('c');
+  const dpr = window.devicePixelRatio || 1;
+
+  // Set internal pixel size large, then CSS scales it smoothly
+  const targetW = Math.min(1200, Math.floor(window.innerWidth * dpr));
+  const targetH = Math.floor(420 * dpr);  // generous height for tall bars + quiet zone
+  canvas.width = targetW;
+  canvas.height = targetH;
+
+  // Render Code128 with generous quiet zone + thicker bars
+  // scale controls bar thickness, height controls bar height.
+  bwipjs.toCanvas(canvas, {
+    bcid:        'code128',
+    text:        sku,
+    scale:       6,
+    height:      22,
+    includetext: false,
+    textxalign:  'center',
+    paddingwidth: 18,
+    paddingheight: 18,
+    backgroundcolor: 'FFFFFF'
+  });
+</script>
+</body>
+</html>
