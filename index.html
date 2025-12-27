@@ -4,146 +4,169 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Stock Scanner</title>
 
-  <!-- Load Quagga2 -->
+  <!-- Quagga2 Barcode Scanner -->
   <script src="https://unpkg.com/@ericblade/quagga2/dist/quagga.min.js"></script>
 
   <style>
-    body { font-family: Arial; text-align: center; margin: 0; }
+    body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }
+    h2 { margin: 12px 0 6px; }
     #scanner { width: 100%; height: 65vh; background: #111; }
-    button { font-size: 18px; padding: 12px; margin: 6px; width: 45%; }
-    input { font-size: 18px; padding: 8px; width: 80%; }
+    .row { display: flex; justify-content: center; gap: 10px; padding: 10px; }
+    button { flex: 1; max-width: 220px; font-size: 18px; padding: 12px; }
+    input { font-size: 18px; padding: 10px; width: 80%; max-width: 320px; }
     #status { padding: 10px; font-size: 14px; }
-    #small { font-size: 12px; opacity: 0.8; margin-top: 6px; }
+    .hint { font-size: 12px; opacity: 0.75; padding: 0 12px 12px; }
   </style>
 </head>
 
 <body>
-  <h2>Stock Scan</h2>
+  <h2>Stock Scanner</h2>
 
-  <div>
+  <div class="row">
     <button id="inBtn">SCAN IN</button>
     <button id="outBtn">SCAN OUT</button>
   </div>
 
-  <p>Quantity</p>
+  <p style="margin: 6px 0;">Quantity</p>
   <input id="qty" type="number" min="1" value="1"/>
 
   <div id="scanner"></div>
 
-  <p id="status">Tap SCAN IN or SCAN OUT to start camera.</p>
-  <p id="small">If camera doesn’t open: Chrome Site Settings → Camera → Allow.</p>
+  <div id="status">Tap SCAN IN or SCAN OUT to start camera.</div>
+  <div class="hint">
+    Tip: Best results scanning from your GitHub <code>view.html</code> barcode viewer page (crisp, no blur).
+    Avoid glare and hold steady ~15–30cm away.
+  </div>
 
-  <!-- IMPORTANT: script is at the bottom so buttons exist -->
-  <script>
-    // ✅ Paste your Apps Script Web App URL here
-    // Example: https://script.google.com/macros/s/XXXXX/exec
-    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwxx_qBja2P_5um5nkTVA78T5TVJY1DoA9GMycWWQxolrygKu_PayOIBw5MbEbkFL8Wcg/exec";
+<script>
+  /**
+   * IMPORTANT:
+   * Paste your Apps Script Web App /exec URL below.
+   * Example: https://script.google.com/macros/s/AKfycb.../exec
+   */
+  const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyZsjl7ADwJSzUAM8EuQNNb4Fc-zyBThPcDmRjezJ_gUyV22EA7H78kYIm_Durc1Rq8/exec";
 
-    let ACTION = 'IN';
-    let scannerRunning = false;
-    let lastDetectedAt = 0;
+  let ACTION = 'IN';
+  let scannerRunning = false;
+  let lastDetectedAt = 0;
 
-    const statusEl = document.getElementById('status');
+  const statusEl = document.getElementById('status');
+  const qtyEl = document.getElementById('qty');
 
-    // If Quagga failed to load, clicks will do nothing unless we show it
-    if (!window.Quagga) {
-      statusEl.innerText = "ERROR: Scanner library didn't load (Quagga missing). Check connection/adblock.";
+  // Verify Quagga loaded
+  if (!window.Quagga) {
+    statusEl.innerText = "ERROR: Quagga2 failed to load. Check internet/adblock.";
+  }
+
+  document.getElementById('inBtn').addEventListener('click', () => start('IN'));
+  document.getElementById('outBtn').addEventListener('click', () => start('OUT'));
+
+  function start(mode) {
+    ACTION = mode;
+    statusEl.innerText = `Mode: ${mode} — requesting camera...`;
+    startScanner();
+  }
+
+  async function startScanner() {
+    if (scannerRunning) return;
+    scannerRunning = true;
+
+    // Force permission prompt on click + request decent resolution
+    try {
+      await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      });
+    } catch (err) {
+      scannerRunning = false;
+      statusEl.innerText = "Camera blocked. Chrome: 🔒 → Site settings → Camera → Allow.";
+      console.error(err);
+      return;
     }
 
-    document.getElementById('inBtn').addEventListener('click', () => start('IN'));
-    document.getElementById('outBtn').addEventListener('click', () => start('OUT'));
-
-    function start(mode) {
-      ACTION = mode;
-      statusEl.innerText = `Mode: ${mode} — requesting camera...`;
-      startScanner();
-    }
-
-    async function startScanner() {
-      if (scannerRunning) return;
-      scannerRunning = true;
-
-      // Force camera prompt on tap
-      try {
-        await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          }
-        });
-      } catch (err) {
+    Quagga.init({
+      inputStream: {
+        type: "LiveStream",
+        target: document.querySelector('#scanner'),
+        constraints: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      },
+      locator: {
+        halfSample: true,
+        patchSize: "medium"
+      },
+      numOfWorkers: navigator.hardwareConcurrency ? Math.min(4, navigator.hardwareConcurrency) : 2,
+      frequency: 10,
+      decoder: {
+        readers: ["code_128_reader"],
+        multiple: false
+      },
+      locate: true
+    }, function(err) {
+      if (err) {
         scannerRunning = false;
-        statusEl.innerText = "Camera blocked. Chrome: 🔒 → Site settings → Camera → Allow.";
+        statusEl.innerText = "Scanner init failed. (See console error.)";
         console.error(err);
         return;
       }
-
-      Quagga.init({
-        inputStream: {
-          type: "LiveStream",
-          target: document.querySelector('#scanner'),
-          constraints: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          }
-        },
-        locator: { halfSample: true, patchSize: "medium" },
-        numOfWorkers: navigator.hardwareConcurrency ? Math.min(4, navigator.hardwareConcurrency) : 2,
-        frequency: 10,
-        decoder: { readers: ["code_128_reader"], multiple: false },
-        locate: true
-      }, function(err) {
-        if (err) {
-          scannerRunning = false;
-          statusEl.innerText = "Scanner init failed. Open console for error.";
-          console.error(err);
-          return;
-        }
-        Quagga.start();
-        statusEl.innerText = `Mode: ${ACTION} — scanning...`;
-      });
-    }
-
-    function stopScanner() {
-      try { Quagga.stop(); } catch(e) {}
-      scannerRunning = false;
-    }
-
-    Quagga.onDetected(function(result) {
-      const code = result?.codeResult?.code;
-      if (!code) return;
-
-      const now = Date.now();
-      if (now - lastDetectedAt < 1200) return;
-      lastDetectedAt = now;
-
-      stopScanner();
-      statusEl.innerText = `Scanned: ${code} — saving...`;
-      sendScan(code);
+      Quagga.start();
+      statusEl.innerText = `Mode: ${ACTION} — scanning...`;
     });
+  }
 
-    function sendScan(sku) {
-      const qty = Number(document.getElementById('qty').value || 1);
+  function stopScanner() {
+    try { Quagga.stop(); } catch(e) {}
+    scannerRunning = false;
+  }
 
-      fetch(WEB_APP_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sku, action: ACTION, qty })
-      })
-      .then(r => r.json())
-      .then(res => {
-        if (res.ok) {
-          statusEl.innerText = `Recorded: ${ACTION} ${qty} × ${sku}. Tap IN/OUT to scan again.`;
-        } else {
-          statusEl.innerText = "Error saving scan: " + (res.error || "Unknown error");
-        }
-      })
-      .catch(err => {
-        statusEl.innerText = "Network error posting to Sheets: " + err;
-      });
-    }
-  </script>
+  Quagga.onDetected(function(result) {
+    const code = result?.codeResult?.code;
+    if (!code) return;
+
+    // debounce
+    const now = Date.now();
+    if (now - lastDetectedAt < 1200) return;
+    lastDetectedAt = now;
+
+    stopScanner();
+    statusEl.innerText = `Scanned: ${code} — saving...`;
+    sendScan(code);
+  });
+
+  function sendScan(sku) {
+    const qty = Number(qtyEl.value || 1);
+
+    /**
+     * CRITICAL CORS FIX:
+     * Use text/plain so Chrome does NOT send a CORS preflight OPTIONS request.
+     * Apps Script Web Apps often fail preflight, causing "TypeError: Failed to fetch".
+     */
+    fetch(WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ sku, action: ACTION, qty })
+    })
+    .then(r => r.text())
+    .then(t => {
+      let res;
+      try { res = JSON.parse(t); } catch(e) { res = { ok: true, raw: t }; }
+
+      if (res.ok) {
+        statusEl.innerText = `Recorded: ${ACTION} ${qty} × ${sku}. Tap IN/OUT to scan again.`;
+      } else {
+        statusEl.innerText = "Error saving scan: " + (res.error || t || "Unknown error");
+      }
+    })
+    .catch(err => {
+      statusEl.innerText = "Network error posting to Sheets: " + err;
+    });
+  }
+</script>
 </body>
 </html>
